@@ -69,6 +69,8 @@ async def process_content(
 # --- Direct message flow (handlers reordered) ---
 
 # This handler now comes FIRST. It is more specific because it checks the state.
+# In the process_subject_for_direct_message function:
+
 @router.message(UserSubmission.awaiting_subject_for_direct_message)
 async def process_subject_for_direct_message(
     message: Message,
@@ -89,8 +91,9 @@ async def process_subject_for_direct_message(
         return
         
     original_message = Message.model_validate_json(original_message_json)
-    # Important: Create a new bot instance for the deserialized message context
-    original_message.bot = bot
+    
+    # THE PROBLEMATIC LINE IS NOW REMOVED.
+    # original_message.bot = bot  <-- REMOVE THIS
 
     report_header = get_report_header(
         loc_path,
@@ -102,6 +105,7 @@ async def process_subject_for_direct_message(
 
     keyboard = get_approval_keyboard(original_message.from_user.id, subject)
 
+    # We call the broadcaster as before. The logic will be moved there.
     await Broadcaster.forward_to_report_group(
         bot, original_message, report_header, keyboard, config
     )
@@ -110,7 +114,6 @@ async def process_subject_for_direct_message(
         loc = json.load(f)
     await message.answer(loc["submission_received"])
     await state.clear()
-
 
 # This general handler now comes LAST. It will only be triggered if no state-based handler above it matches.
 @router.message(F.chat.type == "private")
