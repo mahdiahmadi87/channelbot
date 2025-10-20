@@ -26,5 +26,5 @@ COPY ./app ./app
 # Expose port (if using webhooks in the future)
 # EXPOSE 8080
 
-# Command to run the application
-CMD ["poetry", "run", "python", "app/bot.py"]
+# Command to run the application using the module flag (-m)
+CMD ["poetry", "run", "python", "-m", "app.bot"]

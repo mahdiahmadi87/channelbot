@@ -5,17 +5,17 @@ from pathlib import Path
 
 import yaml
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties # <-- IMPORT THIS
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 import os
 
 from app.handlers import admin, user, callback
 from app.middlewares.acl import ACLMiddleware
-from app.middlewares.throttling import ThrottlingMiddleware # <-- IMPORT
+from app.middlewares.throttling import ThrottlingMiddleware
 from app.services.storage import StorageService
 
 def setup_logging(config):
-    # ... (same as before)
     """Sets up logging configuration."""
     log_level = config.get("logging", {}).get("level", "INFO")
     log_file = config.get("logging", {}).get("file", "bot.log")
@@ -37,7 +37,6 @@ def setup_logging(config):
         ],
     )
     logging.info("Logging configured.")
-
 
 async def main():
     """Main function to start the bot."""
@@ -63,7 +62,10 @@ async def main():
     loc_path = Path(__file__).parent.parent / "fa.json"
     
     # Initialize Bot and Dispatcher
-    bot = Bot(token=bot_token, parse_mode="HTML")
+    # --- THIS LINE IS CORRECTED ---
+    bot = Bot(token=bot_token, default=DefaultBotProperties(parse_mode="HTML"))
+    # ------------------------------
+    
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
@@ -78,7 +80,7 @@ async def main():
             period=rate_limit_config["period"],
             loc_path=loc_path
         )
-    ) # <-- REGISTER THROTTLING MIDDLEWARE ON USER ROUTER
+    )
 
     # Register routers
     dp.include_router(admin.router)

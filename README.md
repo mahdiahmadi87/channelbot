@@ -83,9 +83,9 @@ Your bot needs the following admin rights in the **Report Group** and **Output C
     ```bash
     poetry install
     ```
-2.  **Run the Bot**:
+2.  **Run the Bot** (from the project root directory):
     ```bash
-    poetry run python app/bot.py
+    poetry run python -m app.bot
     ```
 
 #### Using Docker (recommended for production)
