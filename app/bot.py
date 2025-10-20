@@ -11,9 +11,11 @@ import os
 
 from app.handlers import admin, user, callback
 from app.middlewares.acl import ACLMiddleware
+from app.middlewares.throttling import ThrottlingMiddleware # <-- IMPORT
 from app.services.storage import StorageService
 
 def setup_logging(config):
+    # ... (same as before)
     """Sets up logging configuration."""
     log_level = config.get("logging", {}).get("level", "INFO")
     log_file = config.get("logging", {}).get("file", "bot.log")
@@ -35,6 +37,7 @@ def setup_logging(config):
         ],
     )
     logging.info("Logging configured.")
+
 
 async def main():
     """Main function to start the bot."""
@@ -64,9 +67,19 @@ async def main():
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
-    # Register middlewares
+    # Register global middlewares (like ACL)
     dp.update.middleware(ACLMiddleware(storage_service, config))
     
+    # Register router-level middlewares (like Throttling)
+    rate_limit_config = config.get("rate_limit", {"limit": 5, "period": 3600})
+    user.router.message.middleware(
+        ThrottlingMiddleware(
+            limit=rate_limit_config["limit"],
+            period=rate_limit_config["period"],
+            loc_path=loc_path
+        )
+    ) # <-- REGISTER THROTTLING MIDDLEWARE ON USER ROUTER
+
     # Register routers
     dp.include_router(admin.router)
     dp.include_router(user.router)
