@@ -1,14 +1,12 @@
-# app/services/broadcaster.py
-
 import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from aiogram import Bot
-from aiogram.types import Message, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramRetryAfter
+from aiogram.types import InlineKeyboardMarkup, Message
 
 class Broadcaster:
     @staticmethod
@@ -22,16 +20,14 @@ class Broadcaster:
         """Forwards a user's submission to the report group."""
         try:
             sent_header = await bot.send_message(
-                config["report_group_id"],
-                header,
-                disable_web_page_preview=True
+                config["report_group_id"], header, disable_web_page_preview=True
             )
             await bot.copy_message(
                 chat_id=config["report_group_id"],
                 from_chat_id=message.chat.id,
                 message_id=message.message_id,
                 reply_to_message_id=sent_header.message_id,
-                reply_markup=keyboard
+                reply_markup=keyboard,
             )
         except Exception as e:
             logging.error(f"Failed to forward message to report group: {e}")
@@ -43,68 +39,59 @@ class Broadcaster:
         subject: str,
         config: Dict,
         loc_path: Path,
-        is_regular_user_post: bool = False, # <-- NEW PARAMETER
+        is_regular_user_post: bool = False,
         retries: int = 3,
-        delay: int = 2
+        delay: int = 2,
     ):
-        """Posts a message to the output channel with retry logic."""
-        with open(loc_path, 'r', encoding='utf-8') as f:
+        """Posts a message to the output channel with retry logic. (REWRITTEN)"""
+        with open(loc_path, "r", encoding="utf-8") as f:
             loc = json.load(f)
 
         footer = loc["output_channel_footer"].format(
-            subject=subject,
-            channel_id=config["output_channel_id"]
+            subject=subject, channel_id=config["output_channel_id"]
         )
-
-        # <-- NEW LOGIC to add the tag -->
         tag = "\n#ارسالی" if is_regular_user_post else ""
-
-        caption = ""
-        # Handle media captions and text messages correctly
-        if message.text:
-            caption = f"{message.text}{footer}{tag}"
-        elif message.caption:
-            caption = f"{message.caption}{footer}{tag}"
-        else: # For media without a caption
-            caption = f"{footer.lstrip()}{tag}" # lstrip to remove leading newlines
 
         for attempt in range(retries):
             try:
-                await bot.copy_message(
-                    chat_id=config["output_channel_id"],
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id,
-                    # Only provide caption if the original message had media.
-                    # For text messages, the content is part of the copy, and we can't override it.
-                    caption=caption if not message.text else None,
-                )
-                # If it was a text message, we need to edit it to add the footer
-                if message.text:
-                    # The copied message is the last one sent by the bot to the channel.
-                    # This is a bit of a workaround; a more robust way involves getting the message ID
-                    # from the copy_message result, but this is sufficient for most cases.
-                    # For now, let's assume copy_message is sufficient as it copies the text.
-                    # A robust implementation would be more complex. Let's adjust the caption logic.
-                    pass # The text is copied as is. Let's rethink adding footer to text messages.
+                # --- CLEANED UP LOGIC ---
+                # There is now only one send/copy operation per attempt.
 
-                # A better approach for text messages
                 if message.text:
+                    # Handle text messages
+                    final_text = f"{message.text}{footer}{tag}"
                     await bot.send_message(
-                        chat_id=config["output_channel_id"],
-                        text=f"{message.text}{footer}{tag}"
+                        chat_id=config["output_channel_id"], text=final_text
                     )
-                else: # For media
-                     await bot.copy_message(
+
+                else:
+                    # Handle all media types (photo, video, etc.)
+                    base_caption = message.caption if message.caption else ""
+                    final_caption = f"{base_caption}{footer}{tag}"
+                    await bot.copy_message(
                         chat_id=config["output_channel_id"],
                         from_chat_id=message.chat.id,
                         message_id=message.message_id,
-                        caption=caption
+                        caption=final_caption,
                     )
-                return True
+                
+                return True # Success, exit the loop
+
             except TelegramRetryAfter as e:
-                logging.warning(f"Flood control exceeded. Retrying in {e.retry_after} seconds. Attempt {attempt + 1}/{retries}")
+                logging.warning(
+                    f"Flood control exceeded. Retrying in {e.retry_after} seconds. Attempt {attempt + 1}/{retries}"
+                )
                 await asyncio.sleep(e.retry_after)
             except Exception as e:
-                logging.error(f"Failed to post to output channel: {e}. Attempt {attempt + 1}/{retries}")
-                await asyncio.sleep(delay * (2 ** attempt))
+                logging.error(
+                    f"Failed to post to output channel: {e}. Attempt {attempt + 1}/{retries}"
+                )
+                if attempt + 1 == retries:
+                    logging.error("Max retries reached. Giving up on posting message.")
+                    await bot.send_message(
+                        config["owner_id"],
+                        f"Failed to post a message to output channel after {retries} retries. Error: {e}",
+                    )
+                    return False
+                await asyncio.sleep(delay * (2**attempt))  # Exponential backoff
         return False
