@@ -1,117 +1,118 @@
 import json
+import logging
 from pathlib import Path
 from typing import Dict
 
 from aiogram import Router, F, Bot
-from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery
 
-from app.services.storage import StorageService
 from app.services.broadcaster import Broadcaster
 from app.utils.message_helpers import get_log_message
 
 router = Router()
-# This filter should probably be removed to allow commands in the report group too,
-# but for now we keep it as per the original design.
-router.message.filter(F.chat.type == "private")
 
-
-@router.message(Command("add_admin"))
-async def add_admin_handler(
-    message: Message,
-    user_role: str,
-    loc_path: Path,
-    storage_service: StorageService,
-    config: Dict
-):
-    if user_role != "owner":
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["not_admin"].format(owner_id=config['owner_id']))
-        return
-
-    args = message.text.split()
-    if len(args) != 3:
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["invalid_command_format"].format(example="/add_admin <user_id> <alias>"))
-        return
-
-    try:
-        user_id = int(args[1])
-        alias = args[2]
-        await storage_service.add_admin(user_id, alias)
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["admin_added"].format(alias=alias, user_id=user_id))
-    except (ValueError, IndexError):
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["invalid_command_format"].format(example="/add_admin <user_id> <alias>"))
-
-
-@router.message(Command("remove_admin"))
-async def remove_admin_handler(
-    message: Message,
-    user_role: str,
-    loc_path: Path,
-    storage_service: StorageService,
-    config: Dict
-):
-    if user_role != "owner":
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["not_admin"].format(owner_id=config['owner_id']))
-        return
-
-    args = message.text.split()
-    if len(args) != 2:
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["invalid_command_format"].format(example="/remove_admin <user_id>"))
-        return
-
-    try:
-        user_id = int(args[1])
-        if await storage_service.remove_admin(user_id):
-            with open(loc_path, 'r', encoding='utf-8') as f:
-                loc = json.load(f)
-            await message.answer(loc["admin_removed"].format(user_id=user_id))
-        else:
-            with open(loc_path, 'r', encoding='utf-8') as f:
-                loc = json.load(f)
-            await message.answer(loc["admin_not_found"].format(user_id=user_id))
-    except ValueError:
-        with open(loc_path, 'r', encoding='utf-8') as f:
-            loc = json.load(f)
-        await message.answer(loc["invalid_command_format"].format(example="/remove_admin <user_id>"))
-
-
-@router.message(Command("post"))
-async def admin_post_handler(
-    message: Message,
+@router.callback_query(F.data.startswith("approve:"))
+async def approve_callback_handler(
+    query: CallbackQuery,
     bot: Bot,
     user_role: str,
     user_alias: str,
+    config: Dict,
     loc_path: Path,
-    config: Dict
 ):
     if user_role not in ["admin", "owner"]:
+        with open(loc_path, 'r', encoding='utf-8') as f:
+            loc = json.load(f)
+        await query.answer(loc["permission_denied_callback"], show_alert=True)
         return
 
-    if not message.reply_to_message:
-        await message.answer("Please reply to a message to post it directly.")
+    # --- LOGIC CORRECTED HERE ---
+    # The message with the user's content is query.message itself.
+    message_to_approve = query.message
+    # ----------------------------
+
+    parts = query.data.split(":", 2)
+    submitter_id = int(parts[1])
+    subject = parts[2]
+
+    try:
+        # Post the correct message to the output channel
+        await Broadcaster.post_to_output_channel(bot, message_to_approve, subject, config, loc_path)
+
+        # Log approval to report group
+        log_message_text = get_log_message(
+            "report_approved_log",
+            loc_path,
+            admin_alias=user_alias,
+            admin_id=query.from_user.id,
+            submitter_id=submitter_id
+        )
+        await bot.send_message(config["report_group_id"], log_message_text)
+
+        # Edit the report message to show it's handled by removing the buttons
+        # and adding a note to the caption/text.
+        new_text = f"✅ تایید شده توسط {user_alias}"
+        if message_to_approve.caption:
+            await bot.edit_message_caption(
+                chat_id=query.message.chat.id,
+                message_id=query.message.message_id,
+                caption=f"{message_to_approve.caption}\n\n{new_text}",
+                reply_markup=None
+            )
+        else:
+            # If it was just text, we can't edit a caption, so we just remove the keyboard
+            await query.message.edit_reply_markup(reply_markup=None)
+
+        await query.answer("پست تایید و در کانال منتشر شد.")
+
+    except Exception as e:
+        logging.error(f"Error during approval: {e}")
+        await query.answer("An error occurred during approval.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("delete:"))
+async def delete_callback_handler(
+    query: CallbackQuery,
+    bot: Bot,
+    user_role: str,
+    user_alias: str,
+    config: Dict,
+    loc_path: Path,
+):
+    if user_role not in ["admin", "owner"]:
+        with open(loc_path, 'r', encoding='utf-8') as f:
+            loc = json.load(f)
+        await query.answer(loc["permission_denied_callback"], show_alert=True)
         return
 
-    subject = "پست مستقیم ادمین"
+    submitter_id = int(query.data.split(":")[1])
 
-    await Broadcaster.post_to_output_channel(bot, message.reply_to_message, subject, config, loc_path)
-    
-    # Log to report group --- KEY CORRECTED HERE ---
-    log_message = get_log_message(
-        "admin_direct_post_log", # <-- CORRECTED
+    # Log deletion
+    log_message_text = get_log_message(
+        "report_deleted_log",
         loc_path,
         admin_alias=user_alias,
-        admin_id=message.from_user.id
+        admin_id=query.from_user.id,
+        submitter_id=submitter_id
     )
-    await bot.send_message(config["report_group_id"], log_message)
+    await bot.send_message(config["report_group_id"], log_message_text)
+
+    # --- LOGIC CORRECTED HERE ---
+    # Delete the content message AND the header message for cleanliness.
+    try:
+        # Delete the content message (the one with the buttons)
+        await bot.delete_message(
+            chat_id=query.message.chat.id,
+            message_id=query.message.message_id
+        )
+        # If it was a reply, delete the header message too
+        if query.message.reply_to_message:
+            await bot.delete_message(
+                chat_id=query.message.chat.id,
+                message_id=query.message.reply_to_message.message_id
+            )
+    except Exception as e:
+        logging.warning(f"Could not delete message, maybe it was already deleted: {e}")
+    # ----------------------------
+
+    await query.answer("گزارش حذف شد.")
