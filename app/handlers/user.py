@@ -20,13 +20,13 @@ async def cmd_start(message: Message, loc_path: Path):
         loc = json.load(f)
     await message.answer(loc["welcome"])
 
+# --- /submit command flow ---
 @router.message(Command("submit"))
 async def cmd_submit(message: Message, state: FSMContext, loc_path: Path):
     with open(loc_path, 'r', encoding='utf-8') as f:
         loc = json.load(f)
     await message.answer(loc["ask_for_subject"])
     await state.set_state(UserSubmission.awaiting_subject)
-
 
 @router.message(UserSubmission.awaiting_subject)
 async def process_subject(message: Message, state: FSMContext):
@@ -66,19 +66,9 @@ async def process_content(
     await message.answer(loc["submission_received"])
     await state.clear()
 
-# Handler for direct submissions without /submit command
-@router.message(F.chat.type == "private")
-async def direct_submission(message: Message, state: FSMContext, loc_path: Path):
-    # Store the message and ask for the subject
-    # We serialize the message to JSON to store it in the FSM context
-    message_json = message.model_dump_json()
-    await state.update_data(original_message=message_json)
-    
-    with open(loc_path, 'r', encoding='utf-8') as f:
-        loc = json.load(f)
-    await message.answer(loc["ask_for_subject"])
-    await state.set_state(UserSubmission.awaiting_subject_for_direct_message)
+# --- Direct message flow (handlers reordered) ---
 
+# This handler now comes FIRST. It is more specific because it checks the state.
 @router.message(UserSubmission.awaiting_subject_for_direct_message)
 async def process_subject_for_direct_message(
     message: Message,
@@ -120,3 +110,17 @@ async def process_subject_for_direct_message(
         loc = json.load(f)
     await message.answer(loc["submission_received"])
     await state.clear()
+
+
+# This general handler now comes LAST. It will only be triggered if no state-based handler above it matches.
+@router.message(F.chat.type == "private")
+async def direct_submission(message: Message, state: FSMContext, loc_path: Path):
+    # Store the message and ask for the subject
+    # We serialize the message to JSON to store it in the FSM context
+    message_json = message.model_dump_json()
+    await state.update_data(original_message=message_json)
+    
+    with open(loc_path, 'r', encoding='utf-8') as f:
+        loc = json.load(f)
+    await message.answer(loc["ask_for_subject"])
+    await state.set_state(UserSubmission.awaiting_subject_for_direct_message)
