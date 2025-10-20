@@ -396,7 +396,7 @@ Contributions welcome! Please:
 
 ## 📄 License
 
-[Add your license here]
+[Apache License](https://github.com/mahdiahmadi87/channelbot/blob/main/LICENSE)
 
 ## 🙏 Acknowledgments
 
@@ -406,9 +406,9 @@ Contributions welcome! Please:
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](your-repo-url/issues)
-- **Telegram**: [@your_support_username]
-- **Email**: your-email@example.com
+- **Issues**: [GitHub Issues](https://github.com/mahdiahmadi87/channelbot/issues)
+- **Telegram**: t.me/ahmadi_py
+- **Email**: mahdi.ahmadi.1387@gmail.com
 
 ---
 
