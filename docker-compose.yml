@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: telegram_management_bot
+    restart: unless-stopped
+    env_file:
+      - .env # Loads BOT_TOKEN from this file
+    volumes:
+      - ./config.yaml:/usr/src/app/config.yaml
+      - ./admins.json:/usr/src/app/admins.json
+      - ./bot.log:/usr/src/app/bot.log
