@@ -116,3 +116,19 @@ async def admin_post_handler(
         admin_id=message.from_user.id
     )
     await bot.send_message(config["report_group_id"], log_message)
+
+
+@router.message(Command("getid"))
+async def get_id_handler(message: Message):
+    """A temporary command to get the correct chat ID."""
+    if message.forward_from_chat:
+        chat = message.forward_from_chat
+        await message.answer(
+            f"The correct, API-ready ID for the forwarded chat is:\n`{chat.id}`\n\n"
+            f"Title: {chat.title}\n"
+            f"Type: {chat.type}"
+        )
+    else:
+        await message.answer(
+            "Please forward a message from any channel or group here to get its correct ID."
+        )
