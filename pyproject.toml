@@ -11,7 +11,7 @@ aiogram = "^3.1.1"
 pyyaml = "^6.0"
 python-dotenv = "^1.0.0"
 aiofiles = "^23.2.1"
-aiogram_media_group = "^0.1.4" # <-- CORRECTED VERSION NUMBER
+aiogram-media-group = "^1.2.1" # <-- CORRECT NAME AND VERSION
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.4.2"
