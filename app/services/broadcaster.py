@@ -16,7 +16,7 @@ class Broadcaster:
     @staticmethod
     async def forward_to_report_group(
         bot: Bot,
-        messages: Union[Message, List[Message]],
+        messages: List[Message], # Now always a list
         header: str,
         keyboard: InlineKeyboardMarkup,
         config: Dict,
@@ -27,18 +27,20 @@ class Broadcaster:
                 config["report_group_id"], header, disable_web_page_preview=True
             )
 
-            if isinstance(messages, list):
-                # Handle media group
+            if len(messages) > 1:
+                # Handle media group (album)
                 media = convert_messages_to_input_media(messages)
+                # Note: Inline keyboards can't be attached to media groups directly.
+                # We send the keyboard in a subsequent message.
                 await bot.send_media_group(chat_id=config["report_group_id"], media=media)
-                # Buttons must be sent separately for media groups
-                await bot.send_message(config["report_group_id"], "👇", reply_markup=keyboard)
+                await bot.send_message(config["report_group_id"], "👇 گزینه‌های مدیریت برای آلبوم بالا 👇", reply_markup=keyboard)
             else:
                 # Handle single message
+                single_message = messages[0]
                 await bot.copy_message(
                     chat_id=config["report_group_id"],
-                    from_chat_id=messages.chat.id,
-                    message_id=messages.message_id,
+                    from_chat_id=single_message.chat.id,
+                    message_id=single_message.message_id,
                     reply_to_message_id=sent_header.message_id,
                     reply_markup=keyboard,
                 )
@@ -48,13 +50,17 @@ class Broadcaster:
     @staticmethod
     async def post_to_output_channel(
         bot: Bot,
-        messages: Union[Message, List[Message]],
+        messages: List[Message], # Now always a list
         subject: str,
         config: Dict,
         loc_path: Path,
         is_regular_user_post: bool = False,
     ):
         """Posts a message or media group to the output channel."""
+        if not messages:
+            logging.error("post_to_output_channel called with an empty list of messages.")
+            return False
+
         with open(loc_path, "r", encoding="utf-8") as f:
             loc = json.load(f)
 
@@ -64,24 +70,26 @@ class Broadcaster:
         tag = "\n#ارسالی" if is_regular_user_post else ""
 
         try:
-            if isinstance(messages, list):
-                # Handle Media Group
-                base_caption = messages[0].caption if messages[0].caption else ""
+            if len(messages) > 1:
+                # Handle Media Group (album)
+                first_message = messages[0]
+                base_caption = first_message.caption if first_message.caption else ""
                 final_caption = f"{base_caption}{footer}{tag}"
                 media = convert_messages_to_input_media(messages, final_caption)
                 await bot.send_media_group(chat_id=config["output_channel_id"], media=media)
             else:
                 # Handle Single Message
-                if messages.text:
-                    final_text = f"{messages.text}{footer}{tag}"
+                single_message = messages[0]
+                if single_message.text:
+                    final_text = f"{single_message.text}{footer}{tag}"
                     await bot.send_message(chat_id=config["output_channel_id"], text=final_text)
-                else: # Media
-                    base_caption = messages.caption if messages.caption else ""
+                else: # Single Media
+                    base_caption = single_message.caption if single_message.caption else ""
                     final_caption = f"{base_caption}{footer}{tag}"
                     await bot.copy_message(
                         chat_id=config["output_channel_id"],
-                        from_chat_id=messages.chat.id,
-                        message_id=messages.message_id,
+                        from_chat_id=single_message.chat.id,
+                        message_id=single_message.message_id,
                         caption=final_caption,
                     )
             return True
