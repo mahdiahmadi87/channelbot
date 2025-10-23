@@ -32,9 +32,9 @@ async def process_media_group(media_group_id: str, bot: Bot, state: FSMContext):
     messages_json = [msg.model_dump_json() for msg in messages]
     await state.update_data(original_messages=messages_json)
     
-    # This assumes we have a loc_path available. A better implementation might pass it.
     await bot.send_message(messages[0].chat.id, "لطفاً نام سوژه را برای این آلبوم وارد کنید:")
     await state.set_state(UserSubmission.awaiting_subject_for_direct_message)
+
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, user_role: str, loc_path: Path):
@@ -43,8 +43,10 @@ async def cmd_start(message: Message, user_role: str, loc_path: Path):
     keyboard = get_start_menu(user_role)
     await message.answer(loc["welcome"], reply_markup=keyboard)
 
+
 def is_admin_or_owner(user_role: str) -> bool:
     return user_role in ["admin", "owner"]
+
 
 async def handle_submission(
     bot: Bot, messages: List[Message], subject: str, user_role: str,
@@ -53,13 +55,6 @@ async def handle_submission(
     """Unified submission handler."""
     if not messages:
         logging.error("handle_submission called with no messages.")
-        # Notify the user that something went wrong.
-        chat_id = bot.id # Fallback, ideally we'd have the user's chat_id
-        try:
-             chat_id = messages[0].chat.id
-        except IndexError:
-             pass # Stick with bot id if no message is available
-        await bot.send_message(chat_id, "خطایی رخ داد. لطفاً دوباره تلاش کنید.")
         return
 
     is_group = len(messages) > 1
@@ -89,14 +84,50 @@ async def handle_submission(
         await bot.send_message(message_to_log.chat.id, loc["submission_received"])
 
 
-# --- HANDLER ORDER IS NOW CORRECTED ---
+# =============================================================================
+# WORKFLOW 1: Using the /submit command
+# =============================================================================
 
-# 1. Most specific: Handle the reply when the bot is waiting for a subject.
+@router.message(Command("submit"))
+async def cmd_submit(message: Message, state: FSMContext, loc_path: Path):
+    """Step 1: User starts the submission with /submit."""
+    with open(loc_path, 'r', encoding='utf-8') as f:
+        loc = json.load(f)
+    await message.answer(loc["ask_for_subject"])
+    await state.set_state(UserSubmission.awaiting_subject)
+
+
+@router.message(UserSubmission.awaiting_subject)
+async def process_subject_from_command(message: Message, state: FSMContext):
+    """Step 2: User sends the subject, bot asks for content."""
+    await state.update_data(subject=message.text)
+    await message.answer("اکنون محتوای خود را ارسال کنید (متن، عکس، ویدیو و غیره).")
+    await state.set_state(UserSubmission.awaiting_content)
+
+
+@router.message(UserSubmission.awaiting_content)
+async def process_content_from_command(
+    message: Message, bot: Bot, state: FSMContext, user_role: str,
+    user_alias: str, loc_path: Path, config: Dict
+):
+    """Step 3: User sends content, bot processes the submission."""
+    data = await state.get_data()
+    subject = data.get("subject", "نامشخص")
+    await state.clear()
+    # We wrap the single message in a list to use the unified handler
+    await handle_submission(bot, [message], subject, user_role, user_alias, config, loc_path)
+
+
+# =============================================================================
+# WORKFLOW 2: Sending a direct message
+# =============================================================================
+
 @router.message(UserSubmission.awaiting_subject_for_direct_message)
 async def process_subject_for_direct_message(
     message: Message, bot: Bot, state: FSMContext, user_role: str,
     user_alias: str, loc_path: Path, config: Dict
 ):
+    """Handles receiving the subject after a direct message was sent."""
     data = await state.get_data()
     subject = message.text
     
@@ -111,9 +142,9 @@ async def process_subject_for_direct_message(
     await handle_submission(bot, original_messages, subject, user_role, user_alias, config, loc_path)
 
 
-# 2. Next specific: Handle incoming media groups.
 @router.message(F.chat.type == "private", F.media_group_id)
 async def handle_media_group(message: Message, bot: Bot, state: FSMContext):
+    """Collects all messages from a media group."""
     media_group_id = message.media_group_id
     if media_group_id not in media_group_cache:
         media_group_cache[media_group_id] = []
@@ -127,9 +158,9 @@ async def handle_media_group(message: Message, bot: Bot, state: FSMContext):
     media_group_tasks[media_group_id] = task
 
 
-# 3. Least specific: Handle any other single private message as a new submission.
 @router.message(F.chat.type == "private")
 async def direct_submission(message: Message, state: FSMContext, loc_path: Path):
+    """Handles a single direct message as the start of a submission."""
     message_json = message.model_dump_json()
     await state.update_data(original_message=message_json)
     with open(loc_path, 'r', encoding='utf-8') as f:
